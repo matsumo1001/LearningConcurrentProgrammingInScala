@@ -52,7 +52,7 @@ object Volatile extends App {
 
 * ThreadSharedStateAccessReordering Example で既にみたように、実際のモデルは逐次的一貫性モデルとほとんど関連しない
   * プロセッサはキャッシュ階層を持ち、メインメモリにいずれ書き込まれることしか保障しない
-  * コンパイラはレジスタを利用してメモリ書き込みを避けることが許容され、（シングルスレッドで内で）直列的なセマンティクスを維持する限り、最適化のため順序替え(reorder)を行う
+  * コンパイラはレジスタを利用してメモリ書き込みを避けることが許容され、（シングルスレッド内で）直列的なセマンティクスを維持する限り、最適化のため順序替え(reorder)を行う
 
 
 * メモリモデルは並行プログラムの予測可能な振る舞いとコンパイラの最適化能力のトレードオフである
@@ -81,32 +81,59 @@ object Volatile extends App {
   * プログラム順序で揮発性リードの前の非揮発性リードはreorderされない
   * プログラム順序で揮発性ライトの前の非揮発性ライトはreorderされない
 
-
+---
 # Immutable objects and final fields
 * finalフィールドのみのオブジェクトで、コンストラクタの完了前に別のスレッドから可視でない場合、そのオブジェクトはimmutableとみなされ同期化の必要がない
 * Scalaではフィールドのfinalは、サブクラスでgetterメソッドをoverrideできないことを表す
   * フィールド自体はvalで宣言すると常にfinalになる
-
-
-* Scalaは関数型とオブジェクト指向のハイブリッドであるので、言語の特徴の多くはimmutable objectsにマップする
-* Example
-```Java
-```
-
-
-* ローカル変数numberはラムダによって更新されるためliftする必要がある
-* 無名クラスfunction()で書き直した場合
-```ruby
-object LambdaExample extends App {
-  var inc: () => Unit = null
-  val t = thread {
-    if (inc != null) inc()
-  }
-  private var number = 1
-  inc = () => {number += 1}
+  * Example
+```java
+public class Foo {
+　//class Foo(final val a: Int, val b: Int)の変換イメージ
+　final private int a$;
+　final private int b$;
+　final public int a() {return a$;}
+　public int b() {return b$;}
+　public Foo(int a, int b) {
+　　a$ = a;
+　　b$ = b;
+　}
 }
 ```
 
 
-* スレッドtでincのアサインとリードに事前発生の関係はない
-* たとえオブジェクトがimmutableに見えても、スレッド間で共有する場合は常に適切にs同期化する
+* Scalaは関数型とオブジェクト指向のハイブリッドであるので、言語の特徴の多くはimmutable objectsにマップする
+* ローカル変数numberはラムダによって更新されるためliftする必要がある
+  * Example
+```ruby
+object LambdaExample extends App {
+　var inc: () => Unit = null
+　val t = thread {
+　　if (inc != null) inc()
+　}
+　private var number = 1
+　inc = () => {number += 1}
+}
+```
+
+  * 無名クラスfunction()で書き直した場合
+```ruby
+number = new IntRef(1)
+inc = new Function() {
+　val $number = number
+　def apply() = $number.elem += 1
+}
+```
+
+
+* incのアサインと、スレッドtによるreadに事前発生の関係はない
+* しかしながら、スレッドtでincがnullではない場合、incの実行は正しく動作する
+  * $numberがimmutableのラムダオブジェクト項目として適切に初期化されるため
+  * Scalaコンパイラはラムダの値が、finalで適切に初期化されていることを保障する
+
+
+* 現行バージョンのScalaにおいては、ListやVectorなどのCollectionは同期化無しで共有してはいけない
+  * Listの中身はfinalではないため
+
+
+* たとえオブジェクトがimmutableに見えても、スレッド間で共有する場合は常に適切に同期化する
